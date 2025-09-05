@@ -1,0 +1,63 @@
+<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LedgerPro — Register</title>
+<script type="module">import "https://esm.run/@material/web@1/all.js";</script>
+<style>
+:root{--md-sys-color-primary:#4F46E5;--md-sys-color-on-primary:#FFFFFF;--md-sys-color-secondary:#0EA5E9;--md-sys-color-surface:#0B1020;--md-sys-color-on-surface:#E6E8F4;--md-sys-color-outline:#373D62;--card-bg:#11162A;}
+*{box-sizing:border-box}body{margin:0;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+.card{background:var(--card-bg);border-radius:28px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.35)}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+nav{border-right:1px solid var(--md-sys-color-outline);}table{width:100%;border-collapse:collapse}
+th,td{padding:10px;border-bottom:1px solid #202743;font-size:14px}.section{display:none}.section.active{display:block}.header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid #202743;position:sticky;top:0;background:var(--md-sys-color-surface);z-index:10}.app{display:grid;grid-template-columns:280px 1fr;min-height:calc(100vh - 56px)}@media(max-width:900px){.app{grid-template-columns:1fr}nav{position:sticky;top:56px;z-index:10}}
+body{display:grid;place-items:center;height:100vh}.card{width:min(520px,92vw)}</style>
+</head><body>
+<div class="card"><h1>Create account</h1>
+<md-outlined-text-field id="username" label="Username" style="width:100%"></md-outlined-text-field>
+<div style="height:12px"></div>
+<md-outlined-text-field id="email" label="Email" style="width:100%"></md-outlined-text-field>
+<div style="height:12px"></div>
+<md-outlined-text-field id="password" label="Password" type="password" style="width:100%"></md-outlined-text-field>
+<div style="height:16px"></div>
+<md-filled-button style="width:100%" onclick="register()">Register</md-filled-button>
+<div style="text-align:center;margin-top:12px"><a href="/login/">Back to login</a></div>
+<p id="msg"></p></div>
+<script type="module">
+  async function register() {
+    const username = document.querySelector('#username')?.value.trim() || '';
+    const email    = document.querySelector('#email')?.value.trim() || '';
+    const password = document.querySelector('#password')?.value || '';
+    const msgEl    = document.querySelector('#msg');
+
+    if (!username || !password) {
+      msgEl.textContent = 'Username and password are required';
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/users/register/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password })
+      });
+
+      // Show server-side validation clearly
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        msgEl.textContent =
+          data?.username?.[0] || data?.password?.[0] || data?.email?.[0] ||
+          data?.detail || `Registration failed (${res.status})`;
+        return;
+      }
+
+      msgEl.textContent = 'Registration successful — you can login now.';
+      // optionally redirect after a second:
+      // setTimeout(() => (location.href = '/login/'), 1000);
+    } catch (e) {
+      msgEl.textContent = 'Network error. Is the server running?';
+    }
+  }
+
+  // make it visible to the inline onclick
+  window.register = register;
+</script>
+</body></html>
