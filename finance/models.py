@@ -1,6 +1,8 @@
 
 from django.conf import settings
 from django.db import models
+from django.utils.text import slugify
+from django.utils.timezone import now
 
 class RepeatBills(models.TextChoices):
     ONE_TIME_ONLY = 'ONE_TIME_ONLY', 'One time only'
@@ -96,10 +98,39 @@ class Account(OwnedModel):
     loans = models.FloatField(blank=True, null=True)
     depts = models.FloatField(blank=True, null=True)
 
+    public_token = models.CharField(max_length=255, blank=True, null=True)         # <- per your request
+    plaid_access_token = models.CharField(max_length=255, blank=True, null=True)   # store securely in real prod
+    plaid_item_id = models.CharField(max_length=128, blank=True, null=True)
+    institution_name = models.CharField(max_length=255, blank=True, null=True)
+    mask = models.CharField(max_length=8, blank=True, null=True)                   # last4 etc.
+
+
+class Category(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+    slug = models.SlugField(max_length=100, unique=True, blank=True)
+
+    class Meta:
+        ordering = ("name",)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name or "")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
 class Transactions(OwnedModel):
     ownerId_str = models.CharField(max_length=64, blank=True, null=True)
     amount = models.FloatField(blank=True, null=True)
-    category = models.CharField(max_length=120, blank=True, null=True)
+    #category = models.CharField(max_length=120, blank=True, null=True)
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        related_name="transactions",
+        blank=True,
+        null=True,
+    )
     name = models.CharField(max_length=255, blank=True, null=True)
     merchantName = models.CharField(max_length=255, blank=True, null=True)
     currencyCode = models.CharField(max_length=16, blank=True, null=True)
@@ -207,3 +238,26 @@ class FeedBack(OwnedModel):
     userId = models.CharField(max_length=64, blank=True, null=True)
     user = models.CharField(max_length=64, blank=True, null=True)
     rating = models.IntegerField(blank=True, null=True)
+
+
+class PlaidWebhookEvent(models.Model):
+    """
+    Durable log of incoming Plaid webhooks (for audit & retries).
+    """
+    item_id = models.CharField(max_length=128, blank=True, null=True, db_index=True)
+    webhook_type = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    webhook_code = models.CharField(max_length=64, blank=True, null=True)
+    environment = models.CharField(max_length=32, blank=True, null=True)
+    initial_update_complete = models.BooleanField(default=False)
+    historical_update_complete = models.BooleanField(default=False)
+    body = models.JSONField(default=dict, blank=True)   # raw payload
+    received_at = models.DateTimeField(default=now)
+    processed_at = models.DateTimeField(blank=True, null=True)
+    status = models.CharField(max_length=32, default="received")  # received|processing|done|error
+    error = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-received_at"]
+
+    def __str__(self):
+        return f"{self.webhook_type}:{self.webhook_code} ({self.item_id})"

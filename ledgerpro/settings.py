@@ -2,9 +2,32 @@
 import os
 from datetime import timedelta
 from pathlib import Path
+import os
+from pathlib import Path
+from urllib.parse import urlparse
+from dotenv import load_dotenv
 
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+PLAID_CLIENT_ID = os.getenv("PLAID_CLIENT_ID", "5f6e057f0051410011b786af")
+PLAID_SECRET = os.getenv("PLAID_SECRET", "7ee040c71df3da41872e0b6883e1c8")
+PLAID_ENV = os.getenv("PLAID_ENV", "sandbox")  # sandbox|development|production
+PLAID_REDIRECT_URI = os.getenv("PLAID_REDIRECT_URI","http://localhost:5173/")  # optional
+PLAID_WEBHOOK = os.getenv("PLAID_WEBHOOK")            # optional
+
+def database_from_url(url: str):
+    # very small parser to avoid extra deps
+    u = urlparse(url)
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": u.path.lstrip("/"),
+        "USER": u.username,
+        "PASSWORD": u.password,
+        "HOST": u.hostname,
+        "PORT": u.port or "5432",
+    }
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-unsafe-secret-change-me')
 DEBUG = os.environ.get('DEBUG', 'true').lower() == 'true'
@@ -36,12 +59,9 @@ TEMPLATES = [{
 }]
 
 WSGI_APPLICATION = 'ledgerpro.wsgi.application'
-
-DATABASES = {'default': {'ENGINE': os.environ.get('DB_ENGINE','django.db.backends.sqlite3'),
-                         'NAME': os.environ.get('DB_NAME', BASE_DIR / 'db.sqlite3'),
-                         'USER': os.environ.get('DB_USER',''),'PASSWORD': os.environ.get('DB_PASSWORD',''),
-                         'HOST': os.environ.get('DB_HOST',''),'PORT': os.environ.get('DB_PORT','')}}
-
+DATABASES = {
+    "default": database_from_url(os.getenv("DATABASE_URL", "postgresql://arjun:arjun123@localhost:5432/financeai"))
+}
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME':'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME':'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -57,7 +77,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ('rest_framework_simplejwt.authentication.JWTAuthentication',),
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend','rest_framework.filters.SearchFilter','rest_framework.filters.OrderingFilter'],
-    'DEFAULT_PAGINATION_CLASS':'rest_framework.pagination.PageNumberPagination','PAGE_SIZE':25,
+    'DEFAULT_PAGINATION_CLASS':'rest_framework.pagination.PageNumberPagination','PAGE_SIZE':50,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 

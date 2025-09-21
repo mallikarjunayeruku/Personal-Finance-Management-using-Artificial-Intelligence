@@ -17,4 +17,7 @@ urlpatterns = [
     path('login/', TemplateView.as_view(template_name='m3/login.html')),
     path('register/', TemplateView.as_view(template_name='m3/register.html')),
     path('dashboard/', TemplateView.as_view(template_name='m3/dashboard.html')),
+
+    path("api/", include("finance.urls")),
+
 ]

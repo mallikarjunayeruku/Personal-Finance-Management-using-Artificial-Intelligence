@@ -11,7 +11,6 @@ export default function AppLayout() {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const navigate = useNavigate();
 
-  // close on outside click
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!menuOpen) return;

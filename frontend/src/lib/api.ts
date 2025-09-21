@@ -1,4 +1,3 @@
-// src/lib/api.ts
 import { API_BASE } from "../config";
 
 const ACCESS_KEY = "lp_token";
@@ -42,10 +41,8 @@ async function refreshAccessToken(): Promise<string> {
 }
 
 export async function api(path: string, init: RequestInit = {}) {
-  // small helper that adds headers each time we call it
   const run = async (access?: string): Promise<Response> => {
     const headers = new Headers(init.headers || {});
-    // only set content-type when sending a body (won’t break GET with no body)
     if (init.body != null && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
@@ -57,7 +54,6 @@ export async function api(path: string, init: RequestInit = {}) {
   let res = await run(access);
 
   if (res.status === 401) {
-    // Try refresh once, then retry original request
     access = await refreshAccessToken();
     res = await run(access);
   }

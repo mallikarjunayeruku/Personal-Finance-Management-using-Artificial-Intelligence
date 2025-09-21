@@ -1,9 +1,12 @@
 // src/pages/Accounts.tsx
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { v4 as uuidv4 } from 'uuid';
+
 import {
   PiggyBank, Wallet, CreditCard, Banknote, Landmark, Plus,
 } from "lucide-react";
+import AccountsHeaderButtons from "../components/PlaidLinkAccountComp.tsx";
 
 /* ---------- Types ---------- */
 type ApiAccount = {
@@ -64,6 +67,13 @@ function fmtMoney(amount?: number, code?: string) {
   }
 }
 
+
+  declare global {
+    interface Window {
+      Plaid?: { create: (opts: any) => { open: () => void; exit: () => void } };
+    }
+  }
+
 /* ---------- Page ---------- */
 export default function Accounts() {
   const [items, setItems] = useState<ApiAccount[]>([]);
@@ -71,6 +81,7 @@ export default function Accounts() {
   const [err, setErr] = useState<string | null>(null);
 
   // add account modal state
+  const [openLink, setOpenLink] = useState(false);
   const [openAdd, setOpenAdd] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<AccountForm>({
@@ -79,7 +90,7 @@ export default function Accounts() {
     accountType: "checking",
     subAccountType: "DEMAND_DEPOSIT",
     accountNumber: "****4321",
-    accountId: "ext_abc_123",
+    accountId: uuidv4(),
     isoCurrencyCode: "USD",
     currentBalance: 1800.0,
     limit: 0,
@@ -123,19 +134,39 @@ export default function Accounts() {
     load();
   }, []);
 
+  async function loadPlaidScript() {
+    if (window.Plaid) return;
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load Plaid Link script"));
+      document.head.appendChild(s);
+    });
+  }
+
+
   return (
     <div className="space-y-6">
       {/* header with Add button */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Accounts</h1>
-        <button
-          onClick={() => setOpenAdd(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:brightness-110"
-        >
-          <Plus className="h-4 w-4" />
-          Add account
-        </button>
-      </div>
+<div className="flex items-center justify-between">
+  <h1 className="text-2xl font-semibold">Accounts</h1>
+  <div className="flex gap-3">
+    {/* Link Accounts Button */}
+        <AccountsHeaderButtons afterLinked={load}/>
+
+    {/* Add Account Button */}
+    <button
+      onClick={() => setOpenAdd(true)}
+      className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:brightness-110"
+    >
+      <Plus className="h-4 w-4" />
+      Add Account
+    </button>
+  </div>
+</div>
+
 
       {/* error */}
       {err && (
@@ -225,6 +256,36 @@ export default function Accounts() {
         onClose={() => setOpenAdd(false)}
         onSubmit={createAccount}
       />
+{openLink && (
+  <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+    <div className="w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-gray-200">
+      <div className="flex items-center justify-between border-b px-5 py-4">
+        <h3 className="text-lg font-semibold">Link Accounts</h3>
+        <button
+          onClick={() => setOpenLink(false)}
+          className="rounded p-1 text-gray-500 hover:bg-gray-100"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="p-6 space-y-4">
+        <p className="text-sm text-gray-600">
+          Here you can connect to external banks or services (Plaid/Yodlee/etc).
+        </p>
+        <button
+          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+          onClick={() => {
+            alert("TODO: integrate bank linking API (e.g., Plaid).");
+          }}
+        >
+          Connect Bank
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
 }
@@ -260,6 +321,24 @@ function AddAccountDialog({
             />
             <Text label="Account Number (masked)" value={form.accountNumber || ""} onChange={(v) => onChange("accountNumber", v)} />
             <Text label="Currency" value={form.isoCurrencyCode} onChange={(v) => onChange("isoCurrencyCode", v)} />
+            <Number
+  label={
+    isCreditCard(form.accountType)
+      ? "Outstanding Balance"
+      : "Current Balance"
+  }
+  value={form.currentBalance}
+  onChange={(v) => onChange("currentBalance", v)}
+/>
+            {isCreditCard(form.accountType) && (
+             <Number label="Limit" value={form.limit} onChange={(v) => onChange("limit", v)} />
+             )}
+            {isLoanAccount(form.accountType) &&(
+              <Number label="Loan Amount" value={form.loans} onChange={(v) => onChange("loans", v)}/>
+            )}
+            {/*<Number label="Loans" value={form.loans} onChange={(v) => onChange("loans", v)} />
+            <Number label="Debts" value={form.depts} onChange={(v) => onChange("depts", v)} />*/}
+
           </div>
         </div>
 
@@ -305,6 +384,9 @@ function Number({ label, value, onChange }: { label: string; value: number; onCh
 }
 function isCreditCard(typeKey: string) {
   return typeKey === "credit card";
+}
+function isLoanAccount(typeKey: string) {
+  return typeKey === "loan";
 }
 
 function availableForCard(a: ApiAccount) {

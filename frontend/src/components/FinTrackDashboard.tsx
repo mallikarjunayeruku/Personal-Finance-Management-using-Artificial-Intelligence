@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Home, Grid2X2, Clock, Wallet, Calendar, Lightbulb, User2, Bell, TrendingDown, TrendingUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from "recharts";
 import {api} from "../lib/api.ts";
+import { v4 as uuidv4 } from 'uuid';
+
 import Sidebar from "./Sidebar.tsx";
 
 /**
@@ -35,9 +37,9 @@ export default function FinTrackDashboard({
     accountType: "checking",
     subAccountType: "DEMAND_DEPOSIT",
     accountNumber: "****4321",
-    accountId: "ext_abc_123",
+    accountId: uuidv4(),
     isoCurrencyCode: "USD",
-    availableBalance: 1725.0,
+    availableBalance: 0.0,
     currentBalance: 1800.0,
     limit: 0,
     loans: 0,
@@ -254,7 +256,6 @@ function AddAccountDialog({
         <div className="max-h-[75vh] overflow-y-auto px-5 py-4">
           <div className="grid gap-4 md:grid-cols-2">
             <Text label="Account Name" value={form.accountName} onChange={(v)=>onChange("accountName", v)} />
-            <Text label="Official Name" value={form.officialAccountName} onChange={(v)=>onChange("officialAccountName", v)} />
             <Select
               label="Account Type"
               value={form.accountType}
@@ -263,20 +264,8 @@ function AddAccountDialog({
             />
             <Text label="Sub Type" value={form.subAccountType || ""} onChange={(v)=>onChange("subAccountType", v)} />
             <Text label="Account Number (masked)" value={form.accountNumber || ""} onChange={(v)=>onChange("accountNumber", v)} />
-            <Text label="External ID" value={form.accountId || ""} onChange={(v)=>onChange("accountId", v)} />
             <Text label="Currency" value={form.isoCurrencyCode} onChange={(v)=>onChange("isoCurrencyCode", v)} />
-            <Number label="Available Balance" value={form.availableBalance} onChange={(v)=>onChange("availableBalance", v)} />
             <Number label="Current Balance" value={form.currentBalance} onChange={(v)=>onChange("currentBalance", v)} />
-            <Number label="Limit" value={form.limit} onChange={(v)=>onChange("limit", v)} />
-            <Number label="Loans" value={form.loans} onChange={(v)=>onChange("loans", v)} />
-            <Number label="Debts" value={form.depts} onChange={(v)=>onChange("depts", v)} />
-            <Select
-              label="Internal Account?"
-              value={form.isInternalAccount ? "true" : "false"}
-              onChange={(v)=>onChange("isInternalAccount", v === "true")}
-              options={["true","false"]}
-            />
-            <Number label="Icon (index)" value={form.icon} onChange={(v)=>onChange("icon", v)} />
           </div>
         </div>
 
