@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from .views import CategoryViewSet
 from .views_plaid import CreatePlaidLinkTokenView, ExchangePublicTokenView
+from .views_webhook import PlaidWebhookView
 
 router = DefaultRouter()
 router.register(r'bills', views.BillsViewSet)
@@ -26,5 +27,6 @@ urlpatterns = [ path('', include(router.urls)),
                 path("plaid/link-token/", CreatePlaidLinkTokenView.as_view(), name="plaid-link-token"),
                 path("plaid/exchange-public-token/", ExchangePublicTokenView.as_view(),
                      name="plaid-exchange-public-token"),
+                path("plaid/webhook/", PlaidWebhookView.as_view(), name="plaid-webhook"),
 
                 ]

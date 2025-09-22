@@ -124,5 +124,5 @@ class FeedBackSerializer(OwnedSerializer):
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ("id", "name", "slug")
+        fields = ("id", "name","description", "slug")
 

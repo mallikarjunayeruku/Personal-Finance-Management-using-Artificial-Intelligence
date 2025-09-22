@@ -39,11 +39,8 @@ def rand_dt_in_month(year: int, month: int) -> datetime:
     d = start + timedelta(days=random.randrange(delta_days), hours=random.randrange(8, 20))
     return d
 
-def upsert_category(name: str) -> Category:
-    name = (name or "").strip()[:160]
-    if not name:
-        name = "Unknown"
-    cat, _ = Category.objects.get_or_create(name=name)
+def upsert_category(id: int) -> Category:
+    cat, _ = Category.objects.get_or_create(id=id)
     return cat
 
 def bump_balance(account_id, delta: Decimal):
@@ -140,19 +137,19 @@ class Command(BaseCommand):
         zelle_merchants = ["Zelle Transfer", "Zelle Payment", "Zelle Incoming"]
 
         # Categories (ensure exist)
-        cat_salary        = upsert_category("Salary")
-        cat_groceries     = upsert_category("Groceries")
-        cat_food          = upsert_category("Food")
-        cat_shopping      = upsert_category("Shopping")
-        cat_movies        = upsert_category("Movies and leisure")
-        cat_gas           = upsert_category("Gas")
-        cat_zelle         = upsert_category("Zelle")
-        cat_mobile        = upsert_category("Mobile Bills")
-        cat_wifi          = upsert_category("WiFi Bills")
-        cat_electricity   = upsert_category("Electricity Bill")
-        cat_maintenance   = upsert_category("House maintenance Bill")
-        cat_unknown       = upsert_category("Unknown")
-        cat_other         = upsert_category("Other")
+        cat_salary        = upsert_category(88)
+        cat_groceries     = upsert_category(52)
+        cat_food          = upsert_category(23)
+        cat_shopping      = upsert_category(74)
+        cat_movies        = upsert_category(36)
+        cat_gas           = upsert_category(57)
+        cat_zelle         = upsert_category(51)
+        cat_mobile        = upsert_category(64)
+        cat_wifi          = upsert_category(43)
+        cat_electricity   = upsert_category(67)
+        cat_maintenance   = upsert_category(53)
+        cat_unknown       = upsert_category(99)
+        cat_other         = upsert_category(98)
 
         def month_plan(year, month):
             dt = rand_dt_in_month(year, month)

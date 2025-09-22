@@ -1,3 +1,4 @@
+import uuid
 
 from django.conf import settings
 from django.db import models
@@ -106,8 +107,9 @@ class Account(OwnedModel):
 
 
 class Category(models.Model):
-    name = models.CharField(max_length=80, unique=True)
-    slug = models.SlugField(max_length=100, unique=True, blank=True)
+    name = models.CharField(max_length=120)          # primary (e.g. BANK_FEES)
+    description = models.CharField(max_length=160, blank=True, null=True)  # e.g. BANK_FEES_OVERDRAFT_FEES
+    slug = models.CharField(max_length=255, blank=True)  # build from BOTH fields
 
     class Meta:
         ordering = ("name",)
@@ -118,9 +120,16 @@ class Category(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return self.description or self.name
 
 class Transactions(OwnedModel):
+    id = models.CharField(
+        primary_key=True,
+        max_length=64,
+        default=uuid.uuid4,
+        editable=False,
+        unique=True
+    )
     ownerId_str = models.CharField(max_length=64, blank=True, null=True)
     amount = models.FloatField(blank=True, null=True)
     #category = models.CharField(max_length=120, blank=True, null=True)

@@ -10,6 +10,7 @@ type ApiAccount = {
   accountType?: string;
   accountNumber?: string;
   isoCurrencyCode?: string;
+  isInternalAccount?:boolean;
 };
 
 type ApiTransaction = {
@@ -44,7 +45,7 @@ type TxForm = {
   note: string;
 };
 
-type ApiCategory = { id: number | string; name: string; slug: string };
+type ApiCategory = { id: number | string; name: string, description: string; slug: string };
 
 /* -------------------- Helpers -------------------- */
 function fmtMoney(n?: number, code?: string) {
@@ -71,6 +72,7 @@ function isoLocal(date?: string | Date) {
 /* -------------------- Page -------------------- */
 export default function Transactions() {
   const [accounts, setAccounts] = useState<ApiAccount[]>([]);
+  const [allAccounts, setAllAccounts] = useState<ApiAccount[]>([]);
   const [rows, setRows] = useState<ApiTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -117,7 +119,8 @@ export default function Transactions() {
       // accounts (once per load, small)
       const accRes = await api("/accounts/?page_size=500");
       const accs: ApiAccount[] = accRes?.results ?? accRes ?? [];
-      setAccounts(accs);
+      setAllAccounts(accs);
+      setAccounts(accs.filter((a)=> a.isInternalAccount === true));
       if (!form.account && accs[0]?.id != null) setForm((f) => ({ ...f, account: accs[0].id }));
 
       const params = new URLSearchParams({
@@ -154,17 +157,17 @@ export default function Transactions() {
 
   const accountsById = useMemo(() => {
     const map = new Map<number | string, ApiAccount>();
-    accounts.forEach((a) => map.set(a.id, a));
+    allAccounts.forEach((a) => map.set(a.id, a));
     return map;
-  }, [accounts]);
+  }, [allAccounts]);
 
   const typeOptions = useMemo(() => {
     const set = new Set<string>();
-    accounts.forEach((a) => set.add(normalizeType(a.accountType)));
+    allAccounts.forEach((a) => set.add(normalizeType(a.accountType)));
     return ["all", ...Array.from(set)];
-  }, [accounts]);
+  }, [allAccounts]);
 
-  const accountOptions = useMemo(() => ["all", ...accounts.map((a) => a.id)], [accounts]);
+  const accountOptions = useMemo(() => ["all", ...allAccounts.map((a) => a.id)], [allAccounts]);
 
   const filtered = useMemo(() => {
     // client-side filter is applied to the current page
@@ -476,7 +479,7 @@ function CategoryField({ value, categories, onChange }: { value: string; categor
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return categories;
-    return categories.filter(c => c.name.toLowerCase().includes(s));
+    return categories.filter(c => c.description.toLowerCase().includes(s));
   }, [q, categories]);
 
   return (
@@ -499,8 +502,8 @@ function CategoryField({ value, categories, onChange }: { value: string; categor
           <div className="max-h-64 overflow-auto p-1">
             {filtered.length === 0 && <div className="p-3 text-sm text-gray-500">No matches</div>}
             {filtered.map((c) => (
-              <button key={c.name} type="button" onClick={() => { onChange(c.name); setOpen(false); setQ(""); }} className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50 ${c.name === value ? "bg-indigo-50 text-indigo-700" : "text-gray-800"}`}>
-                {c.name}
+              <button key={c.description} type="button" onClick={() => { onChange(c.description); setOpen(false); setQ(""); }} className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50 ${c.description === value ? "bg-indigo-50 text-indigo-700" : "text-gray-800"}`}>
+                {c.description}
               </button>
             ))}
           </div>
@@ -512,8 +515,11 @@ function CategoryField({ value, categories, onChange }: { value: string; categor
     </div>
   );
 }
-function getCategoryByNameOrLast(categories: { id: number | string; name: string }[], name: string) {
+function getCategoryByNameOrLast(categories: { id: number | string; name: string, description: string }[], name: string) {
   if (!categories || categories.length === 0) return null;
-  const found = categories.find(c => c.name.toLowerCase() === name.toLowerCase());
-  return found || categories[categories.length - 1];
+  const found = categories.find(c => c.description.toLowerCase() === name.toLowerCase());
+  if (found === undefined || found === null)
+    return  categories.find(c => c.description.toLowerCase() === "UNKNOWN") || categories[categories.length - 1];
+  else
+    return  found
 }
