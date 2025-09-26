@@ -49,7 +49,7 @@ export default function AppLayout() {
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white/80 px-6 py-3 backdrop-blur">
             <div className="flex items-center gap-3">
               <div className="text-2xl font-extrabold italic">
-                <span className="text-indigo-600">Fin</span>Track
+                <span className="text-indigo-600">Personal Finance Management using </span>Artificial Intelligence
               </div>
               <div className="text-lg text-gray-700">
                 Hello, <span className="font-semibold">Test</span>
