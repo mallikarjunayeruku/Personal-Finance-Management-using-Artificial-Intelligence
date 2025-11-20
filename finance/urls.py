@@ -2,8 +2,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from .swagger import schema_view
 from .views import CategoryViewSet
-from .views_plaid import CreatePlaidLinkTokenView, ExchangePublicTokenView
+from .views_plaid import CreatePlaidLinkTokenView, ExchangePublicTokenView, ManualSyncView
 from .views_webhook import PlaidWebhookView
 
 router = DefaultRouter()
@@ -28,5 +29,8 @@ urlpatterns = [ path('', include(router.urls)),
                 path("plaid/exchange-public-token/", ExchangePublicTokenView.as_view(),
                      name="plaid-exchange-public-token"),
                 path("plaid/webhook/", PlaidWebhookView.as_view(), name="plaid-webhook"),
+                path("plaid/transactions/sync/", ManualSyncView.as_view(), name="plaid-transactions-sync"),
+path('swagger/', schema_view.with_ui('swagger',
+                                         cache_timeout=0), name='schema-swagger-ui'),
 
                 ]

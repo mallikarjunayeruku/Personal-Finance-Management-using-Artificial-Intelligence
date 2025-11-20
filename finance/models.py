@@ -104,6 +104,7 @@ class Account(OwnedModel):
     plaid_item_id = models.CharField(max_length=128, blank=True, null=True)
     institution_name = models.CharField(max_length=255, blank=True, null=True)
     mask = models.CharField(max_length=8, blank=True, null=True)                   # last4 etc.
+    plaid_transactions_cursor = models.CharField(max_length=1024, null=True, blank=True)
 
 
 class Category(models.Model):

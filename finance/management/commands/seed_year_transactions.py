@@ -22,12 +22,15 @@ def to_dec(n) -> Decimal:
     except Exception:
         return Decimal("0")
 
+
 def money(n: Decimal) -> Decimal:
-    """Round to 2 decimals (banker's rounding not needed here)."""
+    """Round to 2 decimals"""
     return to_dec(n).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 
 def first_day(year: int, month: int) -> datetime:
     return datetime(year, month, 1, 10, 0, 0, tzinfo=timezone.get_current_timezone())
+
 
 def rand_dt_in_month(year: int, month: int) -> datetime:
     start = first_day(year, month)
@@ -39,14 +42,17 @@ def rand_dt_in_month(year: int, month: int) -> datetime:
     d = start + timedelta(days=random.randrange(delta_days), hours=random.randrange(8, 20))
     return d
 
+
 def upsert_category(id: int) -> Category:
     cat, _ = Category.objects.get_or_create(id=id)
     return cat
+
 
 def bump_balance(account_id, delta: Decimal):
     Account.objects.filter(id=account_id).update(
         currentBalance=Coalesce(F("currentBalance"), Value(0)) + delta
     )
+
 
 def pick_account_by_type(accounts, type_keywords: tuple[str, ...]):
     for acc in accounts:
@@ -55,37 +61,28 @@ def pick_account_by_type(accounts, type_keywords: tuple[str, ...]):
             return acc
     return accounts[0] if accounts else None
 
+
 # ---------- command ----------
 
 class Command(BaseCommand):
-    help = (
-        "Seed up to one year of transactions for a user and update account balances.\n"
-        "Includes Salary (7500) + common expenses, random unknowns.\n\n"
-        "Examples:\n"
-        "  python manage.py seed_year_transactions --username alice --months 12\n"
-        "  python manage.py seed_year_transactions --user-id 5 --months 6 --start-year 2024 --start-month 4\n"
-        "  python manage.py seed_year_transactions --username alice --checking-id 3 --credit-id 7 --bill-id 3\n"
-        "  python manage.py seed_year_transactions --username alice --months 12 --dry-run --monthly-cap 2000 --rng-seed 42\n"
-    )
+    help = "Seed up to one year of realistic transactions for a user."
 
     def add_arguments(self, parser):
         g = parser.add_mutually_exclusive_group(required=True)
         g.add_argument("--username", type=str, help="Username of the owner")
         g.add_argument("--user-id", type=int, help="User ID of the owner")
 
-        parser.add_argument("--months", type=int, default=12, help="How many months to generate (max 12)")
-        parser.add_argument("--start-year", type=int, default=timezone.now().year, help="Start year (default: current)")
-        parser.add_argument("--start-month", type=int, default=timezone.now().month, help="Start month as 1-12 (default: current month)")
-        parser.add_argument("--checking-id", type=int, help="Account ID to use as primary checking/current (expenses & salary)")
-        parser.add_argument("--credit-id", type=int, help="Account ID to use as credit card (shopping/gas/movies etc.)")
-        parser.add_argument("--bill-id", type=int, help="Account ID to use to pay bills (mobile/wifi/electricity/maintenance)")
-        parser.add_argument("--random-unknown", type=int, default=3, help="Random unknown/other/empty transactions per month")
-
-        # New flags
-        parser.add_argument("--dry-run", action="store_true", help="Simulate only: no DB writes, show summary")
-        parser.add_argument("--monthly-cap", type=float, default=None,
-                            help="Cap monthly EXPENSES (USD). Salary still posts in full.")
-        parser.add_argument("--rng-seed", type=int, default=None, help="Seed the RNG for reproducible data")
+        parser.add_argument("--months", type=int, default=12)
+        parser.add_argument("--start-year", type=int, default=timezone.now().year)
+        parser.add_argument("--start-month", type=int, default=timezone.now().month)
+        parser.add_argument("--dry-run", action="store_true")
+        parser.add_argument("--monthly-cap", type=float, default=None)
+        parser.add_argument("--rng-seed", type=int, default=None)
+        # in add_arguments(self, parser)
+        parser.add_argument("--backfill-years", type=int, default=None,
+                            help="If set, ignore start-year/month and generate from (now - N years) up to current month.")
+        parser.add_argument("--backfill-months", type=int, default=None,
+                            help="If set, ignore start-year/month and generate from (now - N months + 1) up to current month.")
 
     def handle(self, *args, **opts):
         if opts.get("rng_seed") is not None:
@@ -103,283 +100,319 @@ class Command(BaseCommand):
             except User.DoesNotExist:
                 raise CommandError(f"User id={opts['user_id']} not found")
 
-        months = max(1, min(12, int(opts["months"])))
-        start_year = int(opts["start_year"])
-        start_month = int(opts["start_month"])
-        if not (1 <= start_month <= 12):
-            raise CommandError("--start-month must be 1..12")
+        # existing:
+        # months = max(1, min(12, int(opts["months"])))
+        # start_year = int(opts["start_year"])
+        # start_month = int(opts["start_month"])
 
-        monthly_cap = None if opts["monthly_cap"] is None else Decimal(str(opts["monthly_cap"])).quantize(Decimal("0.01"))
+        # NEW: helper to move by months
+        def _shift_year_month(y: int, m: int, delta_months: int) -> tuple[int, int]:
+            # delta_months can be negative
+            total = (y * 12 + (m - 1)) + delta_months
+            new_y, new_m_index = divmod(total, 12)
+            return new_y, new_m_index + 1  # month back to 1..12
+
+        today = timezone.localdate()
+        cur_y, cur_m = today.year, today.month
+
+        backfill_months = None
+        if opts.get("backfill_years") is not None:
+            backfill_months = int(opts["backfill_years"]) * 12
+        elif opts.get("backfill_months") is not None:
+            backfill_months = int(opts["backfill_months"])
+
+        if backfill_months and backfill_months > 0:
+            # include current month, go back (backfill_months - 1) months
+            months = backfill_months
+            start_year, start_month = _shift_year_month(cur_y, cur_m, -(months - 1))
+        else:
+            # fall back to explicit args (as before)
+            months = max(1, min(120, int(opts["months"])))  # allow >12 if you like
+            start_year = int(opts["start_year"])
+            start_month = int(opts["start_month"])
+
+        monthly_cap = (
+            None
+            if opts["monthly_cap"] is None
+            else Decimal(str(opts["monthly_cap"])).quantize(Decimal("0.01"))
+        )
         dry_run = bool(opts["dry_run"])
 
         accounts = list(Account.objects.filter(user=user).order_by("id"))
         if not accounts:
             raise CommandError(f"No accounts found for user {user}")
 
-        # Choose accounts
-        acc_checking = Account.objects.filter(user=user, id=opts.get("checking_id")).first() if opts.get("checking_id") else None
-        acc_credit   = Account.objects.filter(user=user, id=opts.get("credit_id")).first() if opts.get("credit_id") else None
-        acc_bills    = Account.objects.filter(user=user, id=opts.get("bill_id")).first() if opts.get("bill_id") else None
+        acc_checking = pick_account_by_type(accounts, ("checking", "current", "savings"))
+        acc_credit = pick_account_by_type(accounts, ("credit",))
+        acc_bills = acc_checking
 
-        if not acc_checking:
-            acc_checking = pick_account_by_type(accounts, ("checking", "current", "savings"))
-        if not acc_credit:
-            acc_credit = pick_account_by_type(accounts, ("credit",))
-        if not acc_bills:
-            acc_bills = acc_checking
+        # ---- categories ----
+        cats = {
+            "salary": upsert_category(88),
+            "vehicle_ins": upsert_category(55),
+            "health_ins": upsert_category(55),
+            "mobile": upsert_category(64),
+            "wifi": upsert_category(43),
+            "rent": upsert_category(34),
+            "netflix": upsert_category(36),
+            "hulu": upsert_category(36),
+            "prime": upsert_category(36),
+            "transfer_in": upsert_category(51),
+            "transfer_out": upsert_category(31),
+            "food": upsert_category(22),
+            "restaurant": upsert_category(20),
+            "bar": upsert_category(21),
+            "groceries": upsert_category(52),
+            "shopping": upsert_category(74),
+            "gas": upsert_category(57),
+            "coffee": upsert_category(24),
+            "travel": upsert_category(65),
+            "flight": upsert_category(56),
+            "hotel": upsert_category(92),
+            "vehicle_service": upsert_category(53),
+            "furnishing": upsert_category(54),
+            "clothing": upsert_category(74),
+            "donation": upsert_category(16),
+            "credit_payment": upsert_category(33),
+        }
 
         # Merchant pools
-        groceries_merchants = ["Ralphs", "Vons", "Trader Joe's", "Whole Foods", "Safeway"]
-        food_merchants = ["Starbucks", "Chick-fil-A", "McDonalds", "Panera Bread", "Dunkin Donuts"]
-        shopping_merchants = ["Target", "Best Buy", "Amazon", "Costco", "Walmart"]
-        movies_merchants = ["AMC", "Cinemark", "Regal", "Netflix", "Hulu"]
-        gas_merchants = ["Shell", "Chevron", "Mobil", "76", "Arco"]
-        zelle_merchants = ["Zelle Transfer", "Zelle Payment", "Zelle Incoming"]
-
-        # Categories (ensure exist)
-        cat_salary        = upsert_category(88)
-        cat_groceries     = upsert_category(52)
-        cat_food          = upsert_category(23)
-        cat_shopping      = upsert_category(74)
-        cat_movies        = upsert_category(36)
-        cat_gas           = upsert_category(57)
-        cat_zelle         = upsert_category(51)
-        cat_mobile        = upsert_category(64)
-        cat_wifi          = upsert_category(43)
-        cat_electricity   = upsert_category(67)
-        cat_maintenance   = upsert_category(53)
-        cat_unknown       = upsert_category(99)
-        cat_other         = upsert_category(98)
+        merchants = {
+            "vehicle_ins": ["GEICO", "Progressive"],
+            "health_ins": ["Anthem", "UnitedHealth"],
+            "mobile": ["Verizon", "AT&T"],
+            "wifi": ["Comcast", "Spectrum"],
+            "rent": ["Apartment Rent", "Property Mgmt"],
+            "netflix": ["Netflix"],
+            "hulu": ["Hulu"],
+            "prime": ["Amazon Prime"],
+            "food": ["Chipotle", "Subway", "Panera", "Five Guys"],
+            "restaurant": ["Olive Garden", "PF Chang’s", "Cheesecake Factory"],
+            "bar": ["BJ’s", "Applebee’s", "Buffalo Wild Wings"],
+            "groceries": ["Ralphs", "Trader Joe’s", "Safeway", "Vons"],
+            "shopping": ["Target", "Best Buy", "Walmart"],
+            "gas": ["Shell", "Chevron", "76", "Arco"],
+            "coffee": ["Starbucks", "Dunkin Donuts"],
+            "travel": ["Expedia", "TripAdvisor"],
+            "flight": ["United Airlines", "Delta"],
+            "hotel": ["Marriott", "Hilton", "Holiday Inn"],
+            "vehicle_service": ["Jiffy Lube", "Midas", "Firestone"],
+            "furnishing": ["IKEA", "Home Depot"],
+            "clothing": ["H&M", "Macy’s"],
+            "donation": ["Red Cross", "CSUDH Foundation"],
+        }
 
         def month_plan(year, month):
             dt = rand_dt_in_month(year, month)
             plan = []
 
-            # Salary (income)
+            # === INCOME ===
+            salary_amt = Decimal(random.randrange(4400, 4700))
             plan.append({
                 "name": "Monthly Salary",
                 "merchant": "Employer Inc",
-                "category": cat_salary,
-                "amount": Decimal("7500.00"),
+                "category": cats["salary"],
+                "amount": salary_amt,
                 "is_income": True,
                 "account": acc_checking,
                 "date": dt.replace(day=random.randint(1, 5)),
             })
 
-            # Bills
+            # === Monthly Fixed Expenses ===
+            monthly_fixes = [
+                ("Vehicle Insurance", "vehicle_ins", 190, 190),  # fixed 190
+                ("Health Insurance", "health_ins", 120, 120),  # fixed 120
+                ("Mobile Bill", "mobile", 50, 70),
+                ("WiFi Bill", "wifi", 50, 70),
+                ("House Rent & Utilities", "rent", 1500, 1500),  # fixed 1500
+                ("Netflix", "netflix", 15.99, 15.99),
+                ("Hulu", "hulu", 14.99, 14.99),
+                ("Amazon Prime", "prime", 14.99, 14.99),
+            ]
+            for name, key, lo, hi in monthly_fixes:
+                plan.append({
+                    "name": name,
+                    "merchant": random.choice(merchants[key]),
+                    "category": cats[key],
+                    "amount": Decimal(str(round(random.uniform(lo, hi), 2))),
+                    "is_income": False,
+                    "account": acc_bills,
+                    "date": rand_dt_in_month(year, month),
+                })
+
+            # === Transfers ===
             plan += [
-                {"name": "T-Mobile", "merchant": "T-Mobile", "category": cat_mobile, "amount": Decimal("54.00"), "is_income": False, "account": acc_bills, "date": dt.replace(day=8)},
-                {"name": "WiFi Bill", "merchant": "Comcast", "category": cat_wifi, "amount": Decimal(random.choice([55, 60, 65])), "is_income": False, "account": acc_bills, "date": dt.replace(day=10)},
-                {"name": "Electricity Bill", "merchant": "PG&E", "category": cat_electricity, "amount": Decimal(random.choice([80, 95, 110, 130])), "is_income": False, "account": acc_bills, "date": dt.replace(day=12)},
-                {"name": "House Maintenance", "merchant": "Local Services", "category": cat_maintenance, "amount": Decimal(random.choice([40, 60, 75, 90])), "is_income": False, "account": acc_bills, "date": dt.replace(day=18)},
+                {"name": "Zelle Transfer In", "merchant": "Zelle", "category": cats["transfer_in"],
+                 "amount": Decimal(random.randrange(200, 500)), "is_income": True, "account": acc_checking,
+                 "date": rand_dt_in_month(year, month)},
+                {"name": "Zelle Transfer Out", "merchant": "Venmo", "category": cats["transfer_out"],
+                 "amount": Decimal(random.randrange(50, 200)), "is_income": False, "account": acc_checking,
+                 "date": rand_dt_in_month(year, month)},
             ]
 
-            # Groceries (2–4)
-            for _ in range(random.randint(2, 4)):
-                plan.append({
-                    "name": "Groceries",
-                    "merchant": random.choice(groceries_merchants),
-                    "category": cat_groceries,
-                    "amount": Decimal(random.randrange(30, 140)),
-                    "is_income": False,
-                    "account": acc_checking,
-                    "date": rand_dt_in_month(year, month),
-                })
+            # === Weekly Recurring ===
+            weekly_keys = ["food", "restaurant", "bar", "groceries", "shopping", "gas", "coffee"]
+            for wk in range(4):
+                for key in weekly_keys:
+                    amt = {
+                        "food": (8, 28),
+                        "restaurant": (20, 50),
+                        "bar": (15, 40),
+                        "groceries": (40, 120),
+                        "shopping": (25, 100),
+                        "gas": (35, 80),
+                        "coffee": (5, 10),
+                    }[key]
+                    plan.append({
+                        "name": key.capitalize(),
+                        "merchant": random.choice(merchants[key]),
+                        "category": cats[key],
+                        "amount": Decimal(random.randrange(*amt)),
+                        "is_income": False,
+                        "account": acc_checking,
+                        "date": rand_dt_in_month(year, month) + timedelta(days=wk*7),
+                    })
 
-            # Food (2–5)
-            for _ in range(random.randint(2, 5)):
-                plan.append({
-                    "name": "Food",
-                    "merchant": random.choice(food_merchants),
-                    "category": cat_food,
-                    "amount": Decimal(random.randrange(8, 28)),
-                    "is_income": False,
-                    "account": acc_checking,
-                    "date": rand_dt_in_month(year, month),
-                })
+            # === Quarterly (every 3 months) ===
+            if (month - start_month) % 3 == 0:
+                q_items = [
+                    ("Travel & Vacation", "travel", 300, 800),
+                    ("Flight Tickets", "flight", 250, 600),
+                    ("Hotels", "hotel", 200, 500),
+                    ("Vehicle Maintenance", "vehicle_service", 80, 250),
+                    ("Home & Furnishings", "furnishing", 150, 400),
+                    ("Cloth Shopping", "clothing", 80, 200),
+                ]
+                for name, key, lo, hi in q_items:
+                    plan.append({
+                        "name": name,
+                        "merchant": random.choice(merchants[key]),
+                        "category": cats[key],
+                        "amount": Decimal(random.randrange(lo, hi)),
+                        "is_income": False,
+                        "account": acc_checking,
+                        "date": rand_dt_in_month(year, month),
+                    })
 
-            # Shopping (1–3) prefer credit
-            for _ in range(random.randint(1, 3)):
-                plan.append({
-                    "name": "Shopping",
-                    "merchant": random.choice(shopping_merchants),
-                    "category": cat_shopping,
-                    "amount": Decimal(random.randrange(25, 220)),
+            # === Semiannual (every 6 months) ===
+            if (month - start_month) % 6 == 0:
+                s_items = [
+                    ("Donation (College)", "donation", 100, 300),
+                    ("Donation (Non-Profit)", "donation", 50, 200),
+                ]
+                for name, key, lo, hi in s_items:
+                    plan.append({
+                        "name": name,
+                        "merchant": random.choice(merchants[key]),
+                        "category": cats[key],
+                        "amount": Decimal(random.randrange(lo, hi)),
+                        "is_income": False,
+                        "account": acc_checking,
+                        "date": rand_dt_in_month(year, month),
+                    })
+
+            # === Credit Card Usage ===
+            credit_txns = []
+            for _ in range(random.randint(3, 6)):
+                amt = Decimal(random.randrange(10, 60))
+                credit_txns.append({
+                    "name": "Grocery (Credit Card)",
+                    "merchant": random.choice(merchants["groceries"]),
+                    "category": cats["groceries"],
+                    "amount": amt,
                     "is_income": False,
                     "account": acc_credit or acc_checking,
                     "date": rand_dt_in_month(year, month),
                 })
+            plan.extend(credit_txns)
 
-            # Movies/leisure (0–2)
-            for _ in range(random.randint(0, 2)):
-                plan.append({
-                    "name": "Movies & Leisure",
-                    "merchant": random.choice(movies_merchants),
-                    "category": cat_movies,
-                    "amount": Decimal(random.randrange(10, 40)),
-                    "is_income": False,
-                    "account": acc_checking,
-                    "date": rand_dt_in_month(year, month),
-                })
-
-            # Gas (1–3)
-            for _ in range(random.randint(1, 3)):
-                plan.append({
-                    "name": "Gas",
-                    "merchant": random.choice(gas_merchants),
-                    "category": cat_gas,
-                    "amount": Decimal(random.randrange(35, 85)),
-                    "is_income": False,
-                    "account": acc_checking,
-                    "date": rand_dt_in_month(year, month),
-                })
-
-            # Zelle (0–2 in/out)
-            for _ in range(random.randint(0, 2)):
-                is_in = bool(random.getrandbits(1))
-                plan.append({
-                    "name": "Zelle Transfer In" if is_in else "Zelle Transfer Out",
-                    "merchant": random.choice(zelle_merchants),
-                    "category": cat_zelle,
-                    "amount": Decimal(random.randrange(20, 300)),
-                    "is_income": is_in,
-                    "account": acc_checking,
-                    "date": rand_dt_in_month(year, month),
-                })
-
-            # Unknown/Other/Empty
-            for _ in range(int(opts["random_unknown"])):
-                chosen = random.choice([
-                    {"cat": cat_unknown, "name": ""},
-                    {"cat": cat_other, "name": "Misc"},
-                    {"cat": None, "name": ""},  # empty category
-                ])
-                plan.append({
-                    "name": chosen["name"] or "Misc",
-                    "merchant": "N/A",
-                    "category": chosen["cat"],
-                    "amount": Decimal(random.randrange(5, 60)),
-                    "is_income": False,
-                    "account": acc_checking,
-                    "date": rand_dt_in_month(year, month),
-                })
+            # === Credit Card Repayment (next month) ===
+            total_credit = sum((x["amount"] for x in credit_txns), Decimal("0"))
+            next_month = month + 1 if month < 12 else 1
+            next_year = year if month < 12 else year + 1
+            plan.append({
+                "name": "Credit Card Payment",
+                "merchant": "Credit Card AutoPay",
+                "category": cats["credit_payment"],
+                "amount": total_credit,
+                "is_income": False,
+                "account": acc_checking,
+                "date": first_day(next_year, next_month),
+            })
 
             return plan
 
-        # apply cap to expense items (salary not capped)
         def apply_monthly_cap(items, cap: Decimal):
             if cap is None:
                 return items
-            # Split income/expense
             incomes = [it for it in items if it["is_income"]]
             expenses = [it for it in items if not it["is_income"]]
-
             total_expense = sum((it["amount"] for it in expenses), Decimal("0"))
-            total_expense = money(total_expense)
-
             if total_expense <= cap:
-                return incomes + expenses  # nothing to change
+                return items
 
-            # Strategy:
-            # 1) Sort expenses descending (reduce large first), scale them down proportionally,
-            #    but keep small transactions at least $1 to look realistic.
-            # 2) If still over cap due to minimums, drop the smallest ones until under cap.
-            scale = (cap / total_expense) if total_expense > 0 else Decimal("1")
+            scale = cap / total_expense
             scaled = []
-            for it in sorted(expenses, key=lambda x: x["amount"], reverse=True):
+            for it in expenses:
                 new_amt = money(it["amount"] * scale)
                 if new_amt < Decimal("1.00"):
                     new_amt = Decimal("1.00")
                 it2 = it.copy()
                 it2["amount"] = new_amt
                 scaled.append(it2)
-
-            # Re-check and trim if slight overflow due to floors
-            cur = sum((it["amount"] for it in scaled), Decimal("0"))
-            cur = money(cur)
-            if cur > cap:
-                # drop small ones until <= cap
-                scaled.sort(key=lambda x: x["amount"])  # smallest first
-                i = 0
-                while i < len(scaled) and cur > cap:
-                    cur = money(cur - scaled[i]["amount"])
-                    i += 1
-                scaled = scaled[i:]
-
             return incomes + scaled
 
-        # ---------- execution ----------
-        created = 0
-        months_done = 0
+        # ---- execute ----
+        created, months_done = 0, 0
         y, m = start_year, start_month
-
-        # Track dry-run balance impacts (account_id -> Decimal delta)
         balance_deltas = {}
 
         ctx_mgr = transaction.atomic if not dry_run else _nullcontext  # type: ignore
         with ctx_mgr():
             for _ in range(months):
+                # monthly cap variation
+                effective_cap = monthly_cap or Decimal(random.randrange(400, 4000))
                 items = month_plan(y, m)
-                if monthly_cap is not None:
-                    items = apply_monthly_cap(items, monthly_cap)
+                items = apply_monthly_cap(items, effective_cap)
 
-                # sort by date for realism
                 items.sort(key=lambda x: x["date"])
-
-                # monthly totals for logging
-                month_income = Decimal("0")
-                month_expense = Decimal("0")
+                month_income = sum((it["amount"] for it in items if it["is_income"]), Decimal("0"))
+                month_expense = sum((it["amount"] for it in items if not it["is_income"]), Decimal("0"))
 
                 for it in items:
                     acc = it["account"]
                     if not acc:
                         continue
-
                     is_income = bool(it["is_income"])
                     amt = money(it["amount"])
-                    delta = amt if is_income else (amt * Decimal("-1"))
+                    delta = amt if is_income else -amt
 
                     if dry_run:
-                        # track net effect
                         balance_deltas[acc.id] = balance_deltas.get(acc.id, Decimal("0")) + delta
-                        if is_income:
-                            month_income += amt
-                        else:
-                            month_expense += amt
                         continue
 
-                    tx = Transactions.objects.create(
+                    Transactions.objects.create(
                         user=user,
-                        ownerId=str(user.id) if hasattr(Transactions, "ownerId") else None,
+                        ownerId=str(user.id),
                         amount=float(amt),
                         category=it["category"],
-                        name=it["name"] or "Misc",
+                        name=it["name"],
                         merchantName=it["merchant"],
                         currencyCode="USD",
-                        note=f"seeded{' (cap)' if monthly_cap is not None else ''}",
+                        note=f"seeded realistic",
                         createdDate=it["date"],
                         transactionDate=it["date"],
-                        location=None,
-                        latitude=None,
-                        longitude=None,
-                        path=None,
                         isIncome=is_income,
-                        repeat=None,
                         account=acc,
                         isCashAccount=False,
                         canDelete=True,
                     )
                     bump_balance(acc.id, delta)
                     created += 1
-                    if is_income:
-                        month_income += amt
-                    else:
-                        month_expense += amt
 
                 months_done += 1
                 self.stdout.write(self.style.NOTICE(
-                    f"[{y:04d}-{m:02d}] income={month_income}  expenses={month_expense}  "
-                    f"net={(month_income - month_expense).quantize(Decimal('0.01'))}"
+                    f"[{y:04d}-{m:02d}] income={month_income}  expenses={month_expense}  net={(month_income - month_expense).quantize(Decimal('0.01'))}"
                 ))
 
                 if m == 12:
@@ -391,7 +424,7 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("\nDRY RUN — no DB writes performed."))
             if balance_deltas:
-                self.stdout.write("Account balance impacts (simulated):")
+                self.stdout.write("Simulated account balance impacts:")
                 for acc_id, d in sorted(balance_deltas.items()):
                     self.stdout.write(f"  - Account {acc_id}: {money(d)}")
         else:
@@ -399,12 +432,8 @@ class Command(BaseCommand):
                 f"\nInserted {created} transactions across {months_done} month(s) for user '{user}'."
             ))
 
-        self.stdout.write(self.style.SUCCESS(
-            f"Accounts used: checking={getattr(acc_checking, 'id', None)} "
-            f"credit={getattr(acc_credit, 'id', None)} bills={getattr(acc_bills, 'id', None)}"
-        ))
 
-# --- small compat helper for dry-run ---
+# --- context helper for dry-run ---
 class _nullcontext:
     def __enter__(self): return None
     def __exit__(self, *exc): return False

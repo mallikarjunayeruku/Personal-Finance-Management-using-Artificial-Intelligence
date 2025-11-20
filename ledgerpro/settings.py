@@ -6,16 +6,23 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+import environ, os
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+env = environ.Env()
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
-PLAID_CLIENT_ID = os.getenv("PLAID_CLIENT_ID", "5f6e057f0051410011b786af")
-PLAID_SECRET = os.getenv("PLAID_SECRET", "7ee040c71df3da41872e0b6883e1c8")
-PLAID_ENV = os.getenv("PLAID_ENV", "sandbox")  # sandbox|development|production
-PLAID_REDIRECT_URI = os.getenv("PLAID_REDIRECT_URI","http://localhost:5173/")  # optional
-PLAID_WEBHOOK = os.getenv("PLAID_WEBHOOK")            # optional
+PLAID_CLIENT_ID = env("PLAID_CLIENT_ID")
+PLAID_SECRET = env("PLAID_SECRET")
+PLAID_ENV = env("PLAID_ENV")  # sandbox|development|production
+PLAID_REDIRECT_URI = env("PLAID_REDIRECT_URI")  # optional
+PLAID_WEBHOOK = env("PLAID_WEBHOOK")
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
+
+USE_CELERY = env.bool("USE_CELERY", default=True)
 
 def database_from_url(url: str):
     # very small parser to avoid extra deps
@@ -36,7 +43,7 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS','*').split(',')
 INSTALLED_APPS = [
     'django.contrib.admin','django.contrib.auth','django.contrib.contenttypes','django.contrib.sessions','django.contrib.messages','django.contrib.staticfiles',
     'rest_framework','rest_framework.authtoken','django_filters','drf_spectacular',
-    'finance','users','corsheaders'
+    'finance','users','corsheaders', 'drf_yasg'
 ]
 
 MIDDLEWARE = [
@@ -86,3 +93,14 @@ SIMPLE_JWT = {'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('ACC
               'AUTH_HEADER_TYPES': ('Bearer',),}
 
 SPECTACULAR_SETTINGS = {'TITLE':'LedgerPro API','DESCRIPTION':'REST API mirroring the provided GraphQL schema','VERSION':'1.0.0','SERVE_INCLUDE_SCHEMA':False}
+
+SWAGGER_SETTINGS = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header'
+        }
+    },
+    'USE_SESSION_AUTH': False,
+}

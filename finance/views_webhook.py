@@ -9,6 +9,7 @@ from django.utils.decorators import method_decorator
 
 from .models import PlaidWebhookEvent
 from .models import Account
+from .services import sync_plaid_item_transactions
 
 
 def _resolve_user_by_item_id(item_id: str):
@@ -32,7 +33,7 @@ def _kick_off_transactions_sync(item_id: str):
     """
     # Example (pseudo):
     # from .tasks import plaid_transactions_sync
-    # plaid_transactions_sync.delay(item_id=item_id)
+    sync_plaid_item_transactions(item_id)
     pass
 
 

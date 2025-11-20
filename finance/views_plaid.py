@@ -32,6 +32,9 @@ from .models import Account
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.accounts_get_request import AccountsGetRequest
 
+from .views_webhook import _kick_off_transactions_sync
+
+
 class CreatePlaidLinkTokenView(APIView):
     """
     POST /api/plaid/link-token/
@@ -281,3 +284,13 @@ class ExchangePublicTokenView(APIView):
             "imported_count": len(imported),
             "accounts": imported,
         }, status=200)
+
+
+class ManualSyncView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        item_id = request.data.get("item_id")
+        if not item_id:
+            return Response({"detail": "item_id required"}, status=400)
+        _kick_off_transactions_sync(item_id)
+        return Response({"ok": True})
